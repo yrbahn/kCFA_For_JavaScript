@@ -1,0 +1,569 @@
+//
+// a Parser for Intermediate JavaScript
+// 
+
+options {
+   JAVA_UNICODE_ESCAPE = true;
+}
+
+PARSER_BEGIN(IntermediateJavaScriptParser)
+import syntaxtree.*;
+
+public class IntermediateJavaScriptParser 
+{
+  static public int label=1; //dummy value
+}
+
+
+PARSER_END(IntermediateJavaScriptParser)
+
+SKIP :
+{
+   " "
+   | "\t"
+   | "\n"
+   | "\r"
+   | "\f"
+}
+
+TOKEN :
+{
+   <FUNCTION: "function">
+   | <VAR: "var">
+   | <NEW: "new">
+   | <CALL: "call">
+   | <RETURN: "return">
+   | <GOTO: "goto">
+   | <IF: "if">
+   | <TRY: "try">
+   | <CATCH: "catch">
+   | <THROW: "throw">
+   | <FALSE: "false">
+   | <TRUE: "true">
+   | <NULL: "null">
+   | <THIS: "this">
+}
+
+TOKEN :
+{
+   <INTEGER_LITERAL: ["0"-"9"] (["0"-"9"])*>
+   | <STRING_LITERAL: "\"" ((~["\"", "\\", "\n", "\r"]) | ("\\" (["n", "t", "b", "r", "f", "\\", "'", "\""] | ["0"-"7"] (["0"-"7"])? | ["0"-"3"] ["0"-"7"] ["0"-"7"])))* "\"">
+}
+
+TOKEN :
+{
+   <IDENTIFIER:  <LETTER> (<LETTER> | <DIGIT>)*>
+   | <#LETTER: ["A"-"Z", "a"-"z"]>
+   | <#DIGIT: ["0"-"9"]>
+}
+
+TOKEN :
+{
+   <LPAREN: "(">
+   | <RPAREN: ")">
+   | <LBRACE: "{">
+   | <RBRACE: "}">
+   | <LBRACKET: "[">
+   | <RBRACKET: "]">
+   | <SEMICOLON: ";">
+   | <COMMA: ",">
+   | <DOT: ".">
+}
+
+TOKEN :
+{
+   <ASSIGN: "=">
+   | <NOT: "!">
+   | <GT: ">">
+   | <LT: "<">
+   | <HOOK: "?">
+   | <COLON: ":">
+   | <EQ: "==">
+   | <LE: "<=">
+   | <GE: ">=">
+   | <NE: "!=">
+   | <SC_OR: "||">
+   | <SC_AND: "&&">
+   | <PLUS: "+">
+   | <MINUS: "-">
+   | <MULT: "*">
+   | <DIV: "/">
+}
+
+Program Program() :
+{
+   Body body=null;
+}
+{
+   body=Body()
+   <EOF>
+   
+   {  return new Program(body); }
+}
+
+Body Body() :
+{
+   DeclList varList = new DeclList(syntaxtree.DeclList.VAR_LIST);
+   StmtList stmtList = new StmtList();
+   Identifier decl; 
+   Statement stmt = null;
+}
+{
+   (
+      decl=Declaration()
+      { varList.addElement(decl); }
+   )*
+   (
+      stmt=Statement()
+      { stmtList.addElement(stmt); }
+   )*
+     
+   { 
+     return new Body(varList,stmtList); }
+}
+
+Identifier Declaration() :
+{
+	Token t; 
+}
+{
+   <VAR> 
+   t=<IDENTIFIER>
+   <SEMICOLON> 
+   
+   { return new Identifier(t.toString()); }
+}
+
+Statement Statement() :
+{
+  Statement stmt;
+  Token t;
+}
+{
+	(      stmt = AssignStatement()
+    | stmt = ReturnStatement()
+	| stmt = GotoStatement()
+	| stmt = IfStatement()
+	| stmt = TryStatement()
+	| stmt = ThrowStatement()	) ( LOOKAHEAD(2) t=<INTEGER_LITERAL> 
+		{ int la = Integer.parseInt(t.toString());
+		System.out.println(stmt.getLabel());
+		System.out.println(t.toString());
+		System.out.println(la);
+		  stmt.setLabel(la); } )? 
+
+{
+  label++;
+  return stmt; }
+}
+
+AssignStatement AssignStatement() :
+{
+	Expression expr1,expr2;
+	Token t;
+}
+{
+  expr1=Expression()
+  <ASSIGN>
+  expr2=Expression()
+  <SEMICOLON>
+  
+   { return new AssignStatement(expr1,expr2,label); }
+}
+
+GotoStatement GotoStatement() :
+{
+  Token t; 
+}
+{
+   <GOTO> 
+   t=<INTEGER_LITERAL>
+   <SEMICOLON>
+   
+   { return new GotoStatement(new NumberLiteral(t.toString()),label); }
+}
+
+ReturnStatement ReturnStatement() :
+{
+	Expression e;
+}
+{
+   <RETURN>
+   e = Expression()
+   <SEMICOLON>
+   { return new ReturnStatement(e,label); }
+}
+
+IfStatement IfStatement() :
+{
+ Expression e;
+ Token ifLabel;  
+}
+{
+   <IF>
+   e=Expression()
+   <GOTO>
+   ifLabel=<INTEGER_LITERAL>
+   <SEMICOLON>
+   { return new IfStatement(e,new NumberLiteral(ifLabel.toString()),label); }
+}
+
+TryStatement TryStatement() :
+{
+   Statement stmt;
+   Token t;
+   StmtList tryBlock = new StmtList();
+   StmtList catchBlock= new StmtList();
+}
+{
+   <TRY>
+   <RBRACE> 
+   (
+      stmt=Statement()
+      { tryBlock.addElement(stmt); }
+   )*
+   <LBRACE> 
+   <CATCH> 
+   <LPAREN> 
+   t=<IDENTIFIER>
+   <RPAREN> 
+   <RBRACE>
+   (
+      stmt=Statement()
+      { catchBlock.addElement(stmt); }
+   )*
+   <LBRACE> 
+   <SEMICOLON>
+   
+   { return new TryStatement(tryBlock,new Identifier(t.toString()),catchBlock,label); }
+}
+
+ThrowStatement ThrowStatement() :
+{
+  Expression e;
+}
+{
+   <THROW>
+   e=Expression()
+   <SEMICOLON>
+   { return new ThrowStatement(e,label); }
+}
+
+Expression Expression() :
+{
+ Expression e;  
+}
+{
+   (
+      e=ConditionalExpression()
+   |
+	  e = PrimaryOperator()
+   |
+      e=Function()
+   )
+   
+   { return e; }
+}
+
+Function Function() :
+{
+  DeclList argList;
+  StmtList stmtList = new StmtList();
+  Body body;
+  Token t;
+}
+{
+   <FUNCTION>
+   argList = FormalParameters()
+  <LBRACE>   body = Body()
+  <RBRACE>
+  
+  { return new Function(argList,body); }
+}
+
+Expression PrimaryOperator() :
+{
+  Expression e1, e2;
+}
+{
+    (
+      "+"
+       "("
+       e1 = Expression()
+	   ","
+       e2 = Expression()
+       ")"
+       { e1 = new BinaryOperator(BinaryOperator.BIN_PLUS,e1,e2); }
+     |
+       "-"
+       "("
+       e1 = Expression()
+	   ","
+       e2 = Expression()
+       ")"
+       { e1 = new BinaryOperator(BinaryOperator.BIN_MINUS,e1,e2); }
+     |
+       "*"
+       "("
+       e1 = Expression()
+	   ","
+       e2 = Expression()
+       ")"
+       { e1 = new BinaryOperator(BinaryOperator.BIN_TIMES,e1,e2); }
+     |
+       "/"
+       "("
+       e1 = Expression()
+	   ","
+       e2 = Expression()
+       ")"
+       { e1 = new BinaryOperator(BinaryOperator.BIN_DIVIDE,e1,e2); }  
+       
+     |
+       "=="
+       "("
+       e1 = Expression()
+	   ","
+       e2 = Expression()
+       ")"
+       { e1 = new BinaryOperator(BinaryOperator.BIN_EQ,e1,e2); }  
+     
+            
+     |
+       "!="
+       "("
+       e1 = Expression()
+	   ","
+       e2 = Expression()
+       ")"
+       { e1 = new BinaryOperator(BinaryOperator.BIN_NEQ,e1,e2); }  
+           
+     |
+       "<"
+       "("
+       e1 = Expression()
+	   ","
+       e2 = Expression()
+       ")"
+       { e1 = new BinaryOperator(BinaryOperator.BIN_LT,e1,e2); }  
+           
+     |
+       ">"
+       "("
+       e1 = Expression()
+	   ","
+       e2 = Expression()
+       ")"
+       { e1 = new BinaryOperator(BinaryOperator.BIN_GT,e1,e2); }  
+           
+     |
+       "<="
+       "("
+       e1 = Expression()
+	   ","
+       e2 = Expression()
+       ")"
+       { e1 = new BinaryOperator(BinaryOperator.BIN_LE,e1,e2); }  
+           
+     |
+       ">="
+       "("
+       e1 = Expression()
+	   ","
+       e2 = Expression()
+       ")"
+       { e1 = new BinaryOperator(BinaryOperator.BIN_GE,e1,e2); }  
+    
+            
+     |
+       "&&"
+       "("
+       e1 = Expression()
+	   ","
+       e2 = Expression()
+       ")"
+       { e1 = new BinaryOperator(BinaryOperator.BIN_AND,e1,e2); }  
+    
+     |
+       "||"
+       "("
+       e1 = Expression()
+	   ","
+       e2 = Expression()
+       ")"
+       { e1 = new BinaryOperator(BinaryOperator.BIN_OR,e1,e2); }  
+    
+   	)
+  { return e1; }
+}
+
+DeclList FormalParameters():
+{
+	DeclList argList = new DeclList(syntaxtree.DeclList.PRAMETER_LIST);
+	Token t;
+}
+{
+	"(" [ t = <IDENTIFIER> { argList.addElement(new Identifier(t.toString()));} 
+			( "," t = <IDENTIFIER> { argList.addElement(new Identifier(t.toString())); } )*
+		] ")"
+		
+		{ return argList; }
+}
+
+Expression ConditionalExpression() :
+{
+  Expression e1,e2,e3;
+}
+{
+   e1=PrefixExpression()
+   (
+      "?"
+      e2=Expression()
+      ":" 
+      e3=ConditionalExpression()
+      { e1 = new ConditionalExpression(e1,e2,e3); }
+   )?
+   { return e1; }
+}
+
+Expression PrefixExpression():
+{
+  Expression e1;
+}
+{
+   (
+      e1=NotExpression()
+   |
+      e1=PostfixExpression()
+   )
+   { return e1; }
+}
+
+Expression NotExpression() :
+{
+   Expression e1,e2;
+   int count=0;
+}
+{
+   (
+      <NOT> { count = count + 1; }
+   )+
+   e1=PostfixExpression()
+   {
+     e2 =  new UnaryOperator(UnaryOperator.UNARY_NOT,e1);
+     for(int i=0; i < count; i++)
+     {
+       e2 = new UnaryOperator(UnaryOperator.UNARY_NOT,e2);
+     }
+     return e2;
+  }
+}
+
+Expression PostfixExpression() :
+{
+  Expression e1,e2,e3;
+  ExpList expList = new ExpList();
+}
+{
+   e1=PrimaryExpression()
+     ( 
+       <LBRACKET>
+       e2=Expression()
+       <RBRACKET>
+       { e1 = new Selection(e1, new FieldExpression(e2)); }
+	|
+	   "."
+	   "call"
+       "("
+       e2 = Expression() { expList.addElement(e2);}
+       (
+         ","
+         e3 = Expression() { expList.addElement(e3);}
+       )*
+       ")"
+   	  {
+    	e1 = new CallExpression(e1,expList);
+   		} 
+	)*
+	  { return e1; }
+ }
+
+
+Expression PrimaryExpression() :
+{
+   Expression e;
+   Token t;
+}
+{
+   (
+     t=<IDENTIFIER> { e = new Identifier(t.toString()); }
+   | e=Literal()
+   | e=NewExpression()
+   )
+   
+   { return e; }
+}
+
+NewExpression NewExpression() :
+{
+  Expression e;
+  ExpList expList = new ExpList();
+  Token t;
+}
+{
+  <NEW>
+  t=<IDENTIFIER>
+  <LPAREN>
+  e = Expression() { expList.addElement(e);}
+  (
+  	<COMMA>
+    e = Expression() { expList.addElement(e);}
+  )*
+  <RPAREN>
+
+  { return new NewExpression(new Identifier(t.toString()),expList);}
+}
+
+Expression Literal() :
+{
+  Expression e;
+  Token t;
+  String s;
+}
+{
+   (
+      t=<INTEGER_LITERAL>{ e = new NumberLiteral(t.toString()); }
+   |
+      t=<STRING_LITERAL> { e = new StringLiteral(t.toString()); }
+   |
+      e=BooleanLiteral()
+   |
+      e=NullLiteral()
+   |
+      <THIS> { e = new ThisLiteral(); }
+   )
+   
+   { return e; }
+}
+
+BooleanLiteral BooleanLiteral() :
+{
+  Token t;
+}
+{
+   (
+      t=<TRUE>
+    |
+      t=<FALSE>
+    )
+   
+   { return new BooleanLiteral(Boolean.parseBoolean(t.toString())); }
+}
+
+NullLiteral NullLiteral() :
+{
+}
+{
+   <NULL>
+   { return new NullLiteral(); }
+}
